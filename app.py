@@ -493,6 +493,26 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
     """Visualiseer de clusters met verbeterde interactieve analyse."""
     st.header("Cluster Analyse")
     
+    # Debug info
+    with st.expander("🔍 Debug Info", expanded=False):
+        st.write("Available columns in DataFrame:", df.columns.tolist())
+        st.write("Selected columns for clustering:", selected_columns)
+        # Check which selected columns are missing
+        missing_cols = [col for col in selected_columns if col not in df.columns]
+        if missing_cols:
+            st.error(f"Missing columns: {missing_cols}")
+    
+    # Verify selected columns exist in DataFrame
+    valid_columns = [col for col in selected_columns if col in df.columns]
+    if len(valid_columns) != len(selected_columns):
+        st.warning("""
+        ⚠️ Some selected columns were not found in the processed dataset. 
+        This might happen if column names contain special characters or spaces.
+        Only valid columns will be used for analysis.
+        """)
+        # Update selected_columns to only include valid columns
+        selected_columns = valid_columns
+    
     # Initialiseer sessie state voor persistente resultaten
     if 'current_k' not in st.session_state:
         st.session_state.current_k = list(results.keys())[0]
@@ -524,10 +544,12 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
             # Bereken z-scores voor numerieke en dummy kolommen
             profile = {}
             
-            # Filter kolommen - alleen clustering kolommen, geen view-only
-            analysis_columns = [col for col in selected_columns if col in df.columns]
+            # Filter kolommen - expliciet view-only kolommen uitsluiten
+            analysis_columns = [col for col in selected_columns 
+                               if col in df.columns 
+                               and col not in st.session_state.get('view_only_columns', [])]
             
-            # Voor numerieke kolommen
+            # Voor numerieke kolommen - alleen analyse kolommen
             for col in analysis_columns:
                 if df[col].dtype in ['int64', 'float64']:
                     cluster_mean = cluster_data[col].mean()
@@ -542,12 +564,12 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
                             'type': 'numeriek'
                         }
             
-            # Voor dummy kolommen - alleen voor clustering kolommen
+            # Voor dummy kolommen - alleen voor analyse kolommen
             dummy_cols = [col for col in df_with_clusters.columns 
                          if '_' in col 
-                         and col != 'Cluster' 
-                         and col not in st.session_state.get('view_only_columns', [])  # Expliciet view-only uitsluiten
-                         and any(col.startswith(base_col + '_') for base_col in selected_columns)]
+                         and col != 'Cluster'
+                         and col not in st.session_state.get('view_only_columns', [])
+                         and any(col.startswith(base_col + '_') for base_col in analysis_columns)]
             
             for col in dummy_cols:
                 cluster_mean = cluster_data[col].mean()
@@ -622,7 +644,9 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
         
         # Filter kolommen voor de heatmap (numeriek + dummy variabelen)
         numeric_columns = df_with_clusters.select_dtypes(include=['int64', 'float64']).columns
-        heatmap_columns = [col for col in numeric_columns if col in df_with_clusters.columns]  # Inclusief dummy vars
+        heatmap_columns = [col for col in numeric_columns 
+                          if col in df_with_clusters.columns 
+                          and col not in st.session_state.get('view_only_columns', [])]
         
         if len(heatmap_columns) == 0:
             st.warning("Geen numerieke of categorische kolommen beschikbaar voor feature importance visualisatie.")
@@ -846,13 +870,19 @@ def add_cluster_insights(df_with_clusters: pd.DataFrame, selected_columns: List[
         st.write(differences.head())
 
 def export_data(original_df: pd.DataFrame, processed_df: pd.DataFrame, results: dict, selected_k: int):
-    """Functie voor het exporteren van de data met cluster labels voor de geselecteerde K."""
+    """Functie voor het exporteren van de data met cluster labels."""
     # Gebruik de verwerkte dataset als basis voor export
     export_df = processed_df.copy()
     
     # Voeg cluster kolom toe voor geselecteerde K
     export_df[f'Cluster (K={selected_k})'] = results[selected_k]['clusters']
     
+    # Voeg view-only kolommen toe aan export data
+    if 'view_only_columns' in st.session_state:
+        for col in st.session_state.view_only_columns:
+            if col in original_df.columns:
+                export_df[col] = original_df[col]
+
     # Toon preview van de export data
     st.write("### Preview van export data")
     st.dataframe(export_df.head(), use_container_width=True)
@@ -1101,18 +1131,22 @@ def main():
                             
                             # Voor numerieke kolommen
                             for col in selected_columns:
-                                if df[col].dtype in ['int64', 'float64']:
-                                    cluster_mean = cluster_data[col].mean()
-                                    other_mean = other_data[col].mean()
-                                    cluster_std = df_with_clusters[col].std()
-                                    if cluster_std != 0:
-                                        z_score = (cluster_mean - other_mean) / cluster_std
-                                        profile[col] = {
-                                            'z_score': z_score,
-                                            'cluster_mean': cluster_mean,
-                                            'other_mean': other_mean,
-                                            'type': 'numeriek'
-                                        }
+                                if col in df.columns and df[col].dtype in ['int64', 'float64']:
+                                    try:
+                                        cluster_mean = cluster_data[col].mean()
+                                        other_mean = other_data[col].mean()
+                                        cluster_std = df_with_clusters[col].std()
+                                        if cluster_std != 0:
+                                            z_score = (cluster_mean - other_mean) / cluster_std
+                                            profile[col] = {
+                                                'z_score': z_score,
+                                                'cluster_mean': cluster_mean,
+                                                'other_mean': other_mean,
+                                                'type': 'numeriek'
+                                            }
+                                    except KeyError as e:
+                                        st.warning(f"Could not process column '{col}': {str(e)}")
+                                        continue
                             
                             # Voor dummy kolommen
                             dummy_cols = [col for col in df_with_clusters.columns if '_' in col 
