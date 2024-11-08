@@ -740,7 +740,11 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
         
         # Bereken feature importance scores
         feature_importance = {}
-        for col in available_columns:
+        # Filter kolommen - alleen analyse kolommen, geen view-only
+        analysis_columns = [col for col in available_columns 
+                          if col not in st.session_state.get('view_only_columns', [])]
+        
+        for col in analysis_columns:
             # Bereken variantie tussen clusters
             cluster_means = df_with_clusters.groupby('Cluster')[col].mean()
             overall_mean = df_with_clusters[col].mean()
