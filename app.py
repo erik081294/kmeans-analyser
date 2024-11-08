@@ -766,19 +766,37 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
         importance_df['Relatieve Importance'] = (importance_df['Importance Score'] / max_importance * 100)
         
         # Toon tabel met formatting
+        # Converteer numerieke kolommen naar strings met formatting
+        importance_df['F-score'] = importance_df['F-score'].apply(lambda x: f"{x:.3f}")
+        importance_df['Gem. |Z-score|'] = importance_df['Gem. |Z-score|'].apply(lambda x: f"{x:.3f}")
+        importance_df['Importance Score'] = importance_df['Importance Score'].apply(lambda x: f"{x:.3f}")
+        importance_df['Relatieve Importance'] = importance_df['Relatieve Importance'].apply(lambda x: f"{x:.1f}%")
+        
+        # Toon de tabel
         st.dataframe(
-            importance_df.style
-                .format({
-                    'F-score': '{:.3f}',
-                    'Gem. |Z-score|': '{:.3f}',
-                    'Importance Score': '{:.3f}',
-                    'Relatieve Importance': '{:.1f}%'
-                })
-                .background_gradient(subset=['Importance Score'], cmap='YlOrRd')
-                .background_gradient(subset=['Relatieve Importance'], cmap='YlOrRd'),
+            importance_df,
             hide_index=True,
             use_container_width=True
         )
+        
+        # Voeg een visualisatie toe met plotly
+        fig_importance = px.bar(
+            importance_df,
+            x='Feature',
+            y='Importance Score',
+            color='Relatieve Importance',
+            title='Feature Importance Scores',
+            labels={'Feature': 'Kenmerk', 'Importance Score': 'Importance Score'},
+            color_continuous_scale='YlOrRd'
+        )
+        
+        fig_importance.update_layout(
+            xaxis_tickangle=-45,
+            height=500,
+            showlegend=False
+        )
+        
+        st.plotly_chart(fig_importance, use_container_width=True)
         
         with st.expander("ℹ️ Uitleg Feature Importance Scores", expanded=False):
             st.write("""
