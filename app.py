@@ -8,6 +8,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from typing import List, Tuple
 from sklearn.decomposition import PCA
+import io
 
 def load_data() -> pd.DataFrame:
     """Laad de CSV data en return een pandas DataFrame."""
@@ -15,12 +16,53 @@ def load_data() -> pd.DataFrame:
         st.header("📁 Data Import")
         uploaded_file = st.file_uploader("Upload je CSV bestand", type=['csv'])
         
+        # Voeg delimiter selectie toe
+        delimiter = st.selectbox(
+            "Scheidingsteken",
+            options=[",", ";", "\t"],
+            format_func=lambda x: "Komma (,)" if x == "," else "Puntkomma (;)" if x == ";" else "Tab (\\t)",
+            help="Selecteer het scheidingsteken dat in je CSV bestand wordt gebruikt"
+        )
+        
+        # Voeg encoding selectie toe
+        encoding = st.selectbox(
+            "Bestandscodering",
+            options=["utf-8", "latin1", "iso-8859-1"],
+            help="Selecteer de juiste tekstcodering voor je bestand"
+        )
+        
     if uploaded_file is not None:
         try:
-            df = pd.read_csv(uploaded_file)
+            # Probeer eerst te detecteren of er een header aanwezig is
+            sample = uploaded_file.read(1024).decode(encoding)
+            uploaded_file.seek(0)  # Reset bestandspositie
+            
+            # Probeer het bestand te lezen met pandas
+            df = pd.read_csv(
+                uploaded_file,
+                sep=delimiter,
+                encoding=encoding,
+                on_bad_lines='warn'  # Waarschuw bij problematische regels
+            )
+            
+            # Toon preview van de data
+            with st.expander("👀 Data Preview", expanded=True):
+                st.write("Eerste 5 rijen van je data:")
+                st.dataframe(df.head())
+                
+                st.write("Data info:")
+                buffer = io.StringIO()
+                df.info(buf=buffer)
+                st.text(buffer.getvalue())
+            
             return df
+            
         except Exception as e:
-            st.error(f"Error bij het laden van het bestand: {e}")
+            st.error(f"Error bij het laden van het bestand: {str(e)}")
+            st.write("Tips voor het oplossen:")
+            st.write("- Controleer of je het juiste scheidingsteken hebt geselecteerd")
+            st.write("- Controleer of je de juiste bestandscodering hebt geselecteerd")
+            st.write("- Controleer of je CSV bestand correct is geformatteerd")
     return None
 
 def get_column_settings(df: pd.DataFrame) -> Tuple[List[str], dict, List[int], List[str]]:
@@ -438,10 +480,10 @@ def export_cluster_profiles(cluster_profiles: dict, k: int, df_with_clusters: pd
     st.download_button(
         label="📥 Download Cluster Kenmerken",
         data=csv,
-        file_name=f"cluster_profiles_k{k}.csv",  # Voeg K toe aan bestandsnaam
+        file_name=f"cluster_profiles_k{k}.csv",
         mime="text/csv",
         help="Download een gedetailleerd overzicht van alle cluster kenmerken",
-        key=f"download_profiles_{key}"  # Unieke key
+        key=f"download_profiles_{key}"
     )
 
 def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[str]):
