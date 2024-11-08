@@ -726,10 +726,12 @@ def main():
         Deze tool helpt je bij het uitvoeren van K-means clustering analyse op je dataset.
         
         **Hoe te gebruiken:**
-        1. Upload je CSV bestand in de sidebar
-        2. Selecteer de relevante kolommen voor clustering
-        3. Configureer het aantal clusters
-        4. Bekijk de resultaten en analyses
+        1. Zorg dat je dataset is opgeschoond en klaar is voor analyse
+        2. Upload je CSV bestand in de sidebar
+        3. Selecteer de relevante kolommen voor clustering
+        4. Configureer het aantal clusters
+        5. Bekijk de resultaten en analyses
+        6. Exporteer de data met cluster labels
         """)
     
     # Laad data
