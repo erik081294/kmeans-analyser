@@ -7,6 +7,7 @@ from sklearn.metrics import silhouette_score
 import plotly.express as px
 import plotly.graph_objects as go
 from typing import List, Tuple
+from sklearn.decomposition import PCA
 
 def load_data() -> pd.DataFrame:
     """Laad de CSV data en return een pandas DataFrame."""
@@ -361,20 +362,30 @@ def plot_metrics(results: dict):
 
     st.plotly_chart(fig, use_container_width=True)
     
-    # Voeg uitleg toe
-    with st.expander("ℹ️ Uitleg Evaluatie Metrics", expanded=False):
-        st.write("""
-        ### Silhouette Score
-        - Bereik: -1 tot 1
-        - Hogere waarde is beter
-        - Meet hoe goed samples in hun eigen cluster passen vergeleken met andere clusters
-        - Score > 0.5 wijst op een goede clustering
+    # Voeg PCA visualisatie toe
+    st.write("### PCA Visualisatie")
+    
+    # Laat gebruiker K kiezen voor PCA plot
+    k_for_pca = st.selectbox(
+        "Selecteer aantal clusters voor PCA visualisatie:",
+        options=list(results.keys()),
+        help="Kies het aantal clusters dat je wilt visualiseren in de PCA plot"
+    )
+    
+    if 'X' in st.session_state:
+        pca_fig = plot_pca_clusters(st.session_state.X, results, k_for_pca)
+        st.plotly_chart(pca_fig, use_container_width=True)
         
-        ### Inertia (Within-cluster Sum of Squares)
-        - Lagere waarde is beter
-        - Meet hoe dicht samples bij hun cluster centroid liggen
-        - Het 'elbow point' (waar de curve afbuigt) suggereert vaak het optimale aantal clusters
-        """)
+        with st.expander("ℹ️ Uitleg PCA Visualisatie", expanded=False):
+            st.write("""
+            ### Principal Component Analysis (PCA) Visualisatie
+            - Reduceert de multidimensionale data naar 2 dimensies voor visualisatie
+            - PC1 en PC2 zijn de twee belangrijkste componenten die de meeste variatie in de data verklaren
+            - De percentages tussen haakjes geven aan hoeveel van de totale variatie elke component verklaart
+            - Zwarte X-markers tonen de cluster centroids
+            - Dicht bij elkaar liggende punten zijn vergelijkbaar in de originele data
+            - Goed gescheiden clusters suggereren een effectieve clustering
+            """)
 
 def export_cluster_profiles(cluster_profiles: dict, k: int, df_with_clusters: pd.DataFrame, key: str = "default"):
     """Exporteer cluster kenmerken naar een CSV bestand."""
@@ -468,25 +479,29 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
             # Bereken z-scores voor numerieke en dummy kolommen
             profile = {}
             
-            # Voor numerieke kolommen
+            # Controleer eerst of de kolom bestaat in de dataset
             for col in selected_columns:
-                if df[col].dtype in ['int64', 'float64']:
-                    cluster_mean = cluster_data[col].mean()
-                    other_mean = other_data[col].mean()
-                    cluster_std = df_with_clusters[col].std()
-                    if cluster_std != 0:
-                        z_score = (cluster_mean - other_mean) / cluster_std
-                        profile[col] = {
-                            'z_score': z_score,
-                            'cluster_mean': cluster_mean,
-                            'other_mean': other_mean,
-                            'type': 'numeriek'
-                        }
+                if col in df.columns:  # Voeg deze controle toe
+                    if df[col].dtype in ['int64', 'float64']:
+                        cluster_mean = cluster_data[col].mean()
+                        other_mean = other_data[col].mean()
+                        cluster_std = df_with_clusters[col].std()
+                        if cluster_std != 0:
+                            z_score = (cluster_mean - other_mean) / cluster_std
+                            profile[col] = {
+                                'z_score': z_score,
+                                'cluster_mean': cluster_mean,
+                                'other_mean': other_mean,
+                                'type': 'numeriek'
+                            }
             
             # Voor dummy kolommen
-            dummy_cols = [col for col in df_with_clusters.columns if '_' in col 
-                        and col != 'Cluster' 
-                        and col not in selected_columns]
+            dummy_cols = [col for col in df_with_clusters.columns 
+                         if '_' in col 
+                         and col != 'Cluster' 
+                         and col not in selected_columns
+                         and col in df.columns]  # Voeg deze controle toe
+            
             for col in dummy_cols:
                 cluster_mean = cluster_data[col].mean()
                 other_mean = other_data[col].mean()
@@ -648,8 +663,92 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
             bargroupgap=0.05  # Ruimte tussen bars binnen een groep
         )
         st.plotly_chart(fig_dist, use_container_width=True)
-    
-    return df_with_clusters
+        
+        # Feature importance analyse
+        st.write("### Feature Importance Scores")
+        
+        # Bereken feature importance scores
+        feature_importance = {}
+        for col in available_columns:
+            # Bereken variantie tussen clusters
+            cluster_means = df_with_clusters.groupby('Cluster')[col].mean()
+            overall_mean = df_with_clusters[col].mean()
+            between_variance = sum(len(df_with_clusters[df_with_clusters['Cluster'] == c]) * 
+                                 (cluster_means[c] - overall_mean) ** 2 
+                                 for c in range(k_to_visualize))
+            
+            # Bereken totale variantie
+            total_variance = sum((df_with_clusters[col] - overall_mean) ** 2)
+            
+            # Bereken F-score (verhouding tussen varianties)
+            if total_variance != 0:
+                f_score = between_variance / total_variance
+            else:
+                f_score = 0
+                
+            # Bereken gemiddeld absolute z-score over alle clusters
+            z_scores = []
+            for cluster in range(k_to_visualize):
+                cluster_data = df_with_clusters[df_with_clusters['Cluster'] == cluster][col]
+                other_data = df_with_clusters[df_with_clusters['Cluster'] != cluster][col]
+                
+                if len(cluster_data) > 0 and len(other_data) > 0:
+                    cluster_mean = cluster_data.mean()
+                    other_mean = other_data.mean()
+                    pooled_std = np.sqrt((cluster_data.var() * (len(cluster_data) - 1) + 
+                                        other_data.var() * (len(other_data) - 1)) / 
+                                       (len(cluster_data) + len(other_data) - 2))
+                    
+                    if pooled_std != 0:
+                        z_score = abs((cluster_mean - other_mean) / pooled_std)
+                        z_scores.append(z_score)
+            
+            avg_z_score = np.mean(z_scores) if z_scores else 0
+            
+            # Combineer scores
+            importance_score = (f_score + avg_z_score) / 2
+            
+            feature_importance[col] = {
+                'Feature': col,
+                'F-score': f_score,
+                'Gem. |Z-score|': avg_z_score,
+                'Importance Score': importance_score
+            }
+        
+        # Maak DataFrame en sorteer op importance score
+        importance_df = pd.DataFrame(feature_importance.values())
+        importance_df = importance_df.sort_values('Importance Score', ascending=False)
+        
+        # Voeg relatieve importance toe (als percentage van maximum)
+        max_importance = importance_df['Importance Score'].max()
+        importance_df['Relatieve Importance'] = (importance_df['Importance Score'] / max_importance * 100)
+        
+        # Toon tabel met formatting
+        st.dataframe(
+            importance_df.style
+                .format({
+                    'F-score': '{:.3f}',
+                    'Gem. |Z-score|': '{:.3f}',
+                    'Importance Score': '{:.3f}',
+                    'Relatieve Importance': '{:.1f}%'
+                })
+                .background_gradient(subset=['Importance Score'], cmap='YlOrRd')
+                .background_gradient(subset=['Relatieve Importance'], cmap='YlOrRd'),
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        with st.expander("ℹ️ Uitleg Feature Importance Scores", expanded=False):
+            st.write("""
+            De feature importance scores worden berekend op basis van twee metrics:
+            
+            1. **F-score**: Meet hoeveel van de variantie in een feature wordt verklaard door de cluster indeling
+            2. **Gemiddelde |Z-score|**: Gemiddelde absolute z-score over alle clusters, meet hoe sterk features verschillen tussen clusters
+            
+            De uiteindelijke importance score is het gemiddelde van deze twee metrics. Een hogere score betekent dat de feature belangrijker is voor het onderscheiden van clusters.
+            
+            De relatieve importance toont het belang van elke feature als percentage van de belangrijkste feature.
+            """)
 
 def add_cluster_insights(df_with_clusters: pd.DataFrame, selected_columns: List[str], k: int):
     """Voeg diepere cluster inzichten toe."""
@@ -714,6 +813,76 @@ def export_data(original_df: pd.DataFrame, processed_df: pd.DataFrame, results: 
     
     with col2:
         st.write("") # Lege kolom waar voorheen de cluster verdeling stond
+
+def plot_pca_clusters(X: np.ndarray, results: dict, k: int):
+    """Plot een 2D PCA visualisatie van de clusters."""
+    # Voer PCA uit om de data naar 2D te reduceren
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(X)
+    
+    # Maak een DataFrame voor de plotting
+    plot_df = pd.DataFrame({
+        'PC1': X_pca[:, 0],
+        'PC2': X_pca[:, 1],
+        'Cluster': results[k]['clusters'].astype(str)
+    })
+    
+    # Maak een scatter plot met de clusters
+    fig = px.scatter(
+        plot_df,
+        x='PC1',
+        y='PC2',
+        color='Cluster',
+        labels={
+            'PC1': f'PC1 ({pca.explained_variance_ratio_[0]:.1%} variance)',
+            'PC2': f'PC2 ({pca.explained_variance_ratio_[1]:.1%} variance)',
+            'color': 'Cluster'
+        },
+        title='PCA Visualisatie van Clusters',
+    )
+    
+    # Voeg cluster centroids toe
+    centroids_pca = pca.transform(results[k]['model'].cluster_centers_)
+    
+    # Voeg centroids toe als markers
+    fig.add_trace(
+        go.Scatter(
+            x=centroids_pca[:, 0],
+            y=centroids_pca[:, 1],
+            mode='markers',
+            marker=dict(
+                symbol='x',
+                size=12,
+                line=dict(width=2),
+                color='black'
+            ),
+            name='Centroids',
+            hoverinfo='skip'
+        )
+    )
+    
+    # Update layout
+    fig.update_layout(
+        height=600,
+        showlegend=True,
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99
+        )
+    )
+    
+    # Update hover template voor de scatter punten
+    fig.update_traces(
+        hovertemplate="<b>PC1:</b> %{x:.2f}<br>" +
+                     "<b>PC2:</b> %{y:.2f}<br>" +
+                     "<b>Cluster:</b> %{customdata}<extra></extra>",
+        customdata=plot_df['Cluster'],
+        selector=dict(mode='markers')
+    )
+    
+    return fig
 
 def main():
     st.set_page_config(page_title="K-means Clustering Tool", layout="wide")
