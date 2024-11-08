@@ -129,6 +129,9 @@ def get_column_settings(df: pd.DataFrame) -> Tuple[List[str], dict, List[int], L
             help="Deze kolommen worden niet gebruikt voor clustering, maar wel meegenomen in de visualisaties"
         )
         
+        # Sla view-only kolommen op in session state
+        st.session_state.view_only_columns = view_only_columns
+        
         # K-waarden configuratie
         st.header("🔢 K-waarden")
         k_min = st.number_input("Minimum aantal clusters", min_value=2, value=2)
@@ -521,28 +524,30 @@ def visualize_clusters(df: pd.DataFrame, results: dict, selected_columns: List[s
             # Bereken z-scores voor numerieke en dummy kolommen
             profile = {}
             
-            # Controleer eerst of de kolom bestaat in de dataset
-            for col in selected_columns:
-                if col in df.columns:  # Voeg deze controle toe
-                    if df[col].dtype in ['int64', 'float64']:
-                        cluster_mean = cluster_data[col].mean()
-                        other_mean = other_data[col].mean()
-                        cluster_std = df_with_clusters[col].std()
-                        if cluster_std != 0:
-                            z_score = (cluster_mean - other_mean) / cluster_std
-                            profile[col] = {
-                                'z_score': z_score,
-                                'cluster_mean': cluster_mean,
-                                'other_mean': other_mean,
-                                'type': 'numeriek'
-                            }
+            # Filter kolommen - alleen clustering kolommen, geen view-only
+            analysis_columns = [col for col in selected_columns if col in df.columns]
             
-            # Voor dummy kolommen
+            # Voor numerieke kolommen
+            for col in analysis_columns:
+                if df[col].dtype in ['int64', 'float64']:
+                    cluster_mean = cluster_data[col].mean()
+                    other_mean = other_data[col].mean()
+                    cluster_std = df_with_clusters[col].std()
+                    if cluster_std != 0:
+                        z_score = (cluster_mean - other_mean) / cluster_std
+                        profile[col] = {
+                            'z_score': z_score,
+                            'cluster_mean': cluster_mean,
+                            'other_mean': other_mean,
+                            'type': 'numeriek'
+                        }
+            
+            # Voor dummy kolommen - alleen voor clustering kolommen
             dummy_cols = [col for col in df_with_clusters.columns 
                          if '_' in col 
                          and col != 'Cluster' 
-                         and col not in selected_columns
-                         and col in df.columns]  # Voeg deze controle toe
+                         and col not in st.session_state.get('view_only_columns', [])  # Expliciet view-only uitsluiten
+                         and any(col.startswith(base_col + '_') for base_col in selected_columns)]
             
             for col in dummy_cols:
                 cluster_mean = cluster_data[col].mean()
