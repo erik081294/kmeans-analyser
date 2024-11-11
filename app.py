@@ -155,9 +155,8 @@ def get_column_settings(df: pd.DataFrame) -> Tuple[List[str], dict, List[int], L
 
 def prepare_data(df: pd.DataFrame, selected_columns: List[str], column_settings: dict, view_only_columns: List[str]) -> Tuple[np.ndarray, pd.DataFrame]:
     """Verbeterde data voorbereiding met dummy variabelen voor categorische kolommen."""
-    # Maak kopie van data met zowel clustering als view-only kolommen
-    all_columns = selected_columns + view_only_columns
-    X = df[all_columns].copy()
+    # Maak kopie van data met ALLEEN clustering kolommen (geen view-only)
+    X = df[selected_columns].copy()
     
     # Debug informatie
     missing_info = X.isnull().sum()
@@ -231,12 +230,6 @@ def prepare_data(df: pd.DataFrame, selected_columns: List[str], column_settings:
                 mean_val = X[col].mean()
                 X[col] = X[col].fillna(mean_val)
                 removed_info.append(f"Missing values in '{col}' vervangen met gemiddelde: {mean_val:.2f}")
-        
-        # Toon samenvatting van acties in een expander
-        if removed_info:
-            with st.expander("ℹ️ Uitgevoerde acties voor missing values", expanded=False):
-                for info in removed_info:
-                    st.write(f"- {info}")
     
     # Verwerk de kolommen die voor clustering gebruikt worden
     processed_columns = []
@@ -272,13 +265,6 @@ def prepare_data(df: pd.DataFrame, selected_columns: List[str], column_settings:
     
     # Selecteer alleen de verwerkte kolommen voor clustering
     X_cluster = X[processed_columns]
-    
-    # Toon informatie over de dummy variabelen
-    if dummy_columns:
-        with st.expander("ℹ️ Gecreëerde dummy variabelen", expanded=False):
-            st.write("De volgende proporties zijn berekend voor categorische variabelen:")
-            for col in dummy_columns:
-                st.write(f"- {col}: {X[col].mean():.2%} van de observaties")
     
     # Laatste verificatie voor NaN waarden
     if X_cluster.isnull().any().any():
@@ -342,18 +328,18 @@ def plot_metrics(results: dict):
     # Maak een gecombineerde plot met twee y-assen
     fig = go.Figure()
 
-    # Voeg Silhouette Score toe (linker y-as)
+    # Voeg Silhouette Score toe als bars (linker y-as)
     fig.add_trace(
-        go.Scatter(
+        go.Bar(
             x=list(results.keys()),
             y=[results[k]['silhouette'] for k in results.keys()],
             name='Silhouette Score',
-            line=dict(color='#2ecc71', width=3),
-            mode='lines+markers'
+            marker_color='#2ecc71',
+            width=0.5  # Maak de bars wat smaller
         )
     )
 
-    # Voeg Inertia toe (rechter y-as)
+    # Voeg Inertia toe als lijn (rechter y-as)
     fig.add_trace(
         go.Scatter(
             x=list(results.keys()),
@@ -365,7 +351,14 @@ def plot_metrics(results: dict):
         )
     )
 
-    # Update layout voor twee y-assen
+    # Bereken de range voor silhouette scores
+    silhouette_scores = [results[k]['silhouette'] for k in results.keys()]
+    sil_min = min(silhouette_scores)
+    sil_max = max(silhouette_scores)
+    sil_range = sil_max - sil_min
+    sil_padding = sil_range * 0.1  # 10% padding
+
+    # Update layout voor twee y-assen met dynamische range voor silhouette scores
     fig.update_layout(
         title='Evaluatie Metrics per Aantal Clusters',
         xaxis=dict(
@@ -377,7 +370,8 @@ def plot_metrics(results: dict):
             title='Silhouette Score',
             titlefont=dict(color='#2ecc71'),
             tickfont=dict(color='#2ecc71'),
-            range=[0, 1]  # Silhouette score is altijd tussen -1 en 1
+            range=[max(0, sil_min - sil_padding), min(1, sil_max + sil_padding)],  # Dynamische range met padding
+            gridcolor='lightgray'  # Voeg lichte gridlijnen toe voor betere leesbaarheid
         ),
         yaxis2=dict(
             title='Inertia',
@@ -385,7 +379,8 @@ def plot_metrics(results: dict):
             tickfont=dict(color='#e74c3c'),
             anchor='x',
             overlaying='y',
-            side='right'
+            side='right',
+            gridcolor='lightgray'  # Voeg lichte gridlijnen toe voor betere leesbaarheid
         ),
         height=500,
         hovermode='x unified',
@@ -395,7 +390,8 @@ def plot_metrics(results: dict):
             y=0.99,
             xanchor="left",
             x=0.01
-        )
+        ),
+        bargap=0.4  # Ruimte tussen de bars
     )
 
     # Update hover template
