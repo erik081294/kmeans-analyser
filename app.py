@@ -276,6 +276,9 @@ def prepare_data(df: pd.DataFrame, selected_columns: List[str], column_settings:
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X_cluster)
     
+    # Na het maken van X_cluster en voor het schalen:
+    st.session_state.feature_names = X_cluster.columns.tolist()
+    
     return X_scaled, full_df
 
 def perform_clustering(X: np.ndarray, k_values: List[int]) -> dict:
@@ -414,19 +417,8 @@ def plot_metrics(results: dict):
     )
     
     if 'X' in st.session_state:
-        pca_fig = plot_pca_clusters(st.session_state.X, results, k_for_pca)
-        st.plotly_chart(pca_fig, use_container_width=True)
-        
-        with st.expander("ℹ️ Uitleg PCA Visualisatie", expanded=False):
-            st.write("""
-            ### Principal Component Analysis (PCA) Visualisatie
-            - Reduceert de multidimensionale data naar 2 dimensies voor visualisatie
-            - PC1 en PC2 zijn de twee belangrijkste componenten die de meeste variatie in de data verklaren
-            - De percentages tussen haakjes geven aan hoeveel van de totale variatie elke component verklaart
-            - Zwarte X-markers tonen de cluster centroids
-            - Dicht bij elkaar liggende punten zijn vergelijkbaar in de originele data
-            - Goed gescheiden clusters suggereren een effectieve clustering
-            """)
+        # Direct aanroepen van plot_pca_clusters zonder de return waarde te gebruiken
+        plot_pca_clusters(st.session_state.X, results, k_for_pca)
 
 def export_cluster_profiles(cluster_profiles: dict, k: int, df_with_clusters: pd.DataFrame, key: str = "default"):
     """Exporteer cluster kenmerken naar een CSV bestand."""
@@ -910,7 +902,7 @@ def export_data(original_df: pd.DataFrame, processed_df: pd.DataFrame, results: 
         st.write("") # Lege kolom waar voorheen de cluster verdeling stond
 
 def plot_pca_clusters(X: np.ndarray, results: dict, k: int):
-    """Plot een 2D PCA visualisatie van de clusters."""
+    """Plot een 2D PCA visualisatie van de clusters met feature loadings."""
     # Voer PCA uit om de data naar 2D te reduceren
     pca = PCA(n_components=2)
     X_pca = pca.fit_transform(X)
@@ -977,7 +969,86 @@ def plot_pca_clusters(X: np.ndarray, results: dict, k: int):
         selector=dict(mode='markers')
     )
     
-    return fig
+    # Toon de scatter plot
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Voeg PCA uitleg toe direct onder de visualisatie
+    with st.expander("ℹ️ Uitleg PCA Visualisatie", expanded=False):
+        st.write("""
+        ### Principal Component Analysis (PCA) Visualisatie
+        - Reduceert de multidimensionale data naar 2 dimensies voor visualisatie
+        - PC1 en PC2 zijn de twee belangrijkste componenten die de meeste variatie in de data verklaren
+        - De percentages tussen haakjes geven aan hoeveel van de totale variatie elke component verklaart
+        - Zwarte X-markers tonen de cluster centroids
+        - Dicht bij elkaar liggende punten zijn vergelijkbaar in de originele data
+        - Goed gescheiden clusters suggereren een effectieve clustering
+        """)
+    
+    # Toon feature loadings onder de PCA uitleg
+    if 'feature_names' in st.session_state:
+        st.write("### Feature Loadings")
+        feature_names = st.session_state.feature_names
+        loadings = pd.DataFrame(
+            pca.components_.T,
+            columns=['PC1', 'PC2'],
+            index=feature_names
+        )
+        
+        # Sorteer loadings op absolute waarde
+        pc1_loadings = loadings['PC1'].abs().sort_values(ascending=False)
+        pc2_loadings = loadings['PC2'].abs().sort_values(ascending=False)
+        
+        # Toon loadings in twee kolommen
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("#### PC1 Feature Loadings")
+            loading_df1 = pd.DataFrame({
+                'Feature': pc1_loadings.index,
+                'Loading': loadings.loc[pc1_loadings.index, 'PC1'].round(3)
+            })
+            # Voeg een bar chart toe voor PC1 loadings
+            fig_pc1 = px.bar(
+                loading_df1,
+                x='Loading',
+                y='Feature',
+                orientation='h',
+                title='PC1 Feature Loadings'
+            )
+            fig_pc1.update_layout(height=max(400, len(feature_names) * 20))
+            st.plotly_chart(fig_pc1, use_container_width=True)
+            
+        with col2:
+            st.write("#### PC2 Feature Loadings")
+            loading_df2 = pd.DataFrame({
+                'Feature': pc2_loadings.index,
+                'Loading': loadings.loc[pc2_loadings.index, 'PC2'].round(3)
+            })
+            # Voeg een bar chart toe voor PC2 loadings
+            fig_pc2 = px.bar(
+                loading_df2,
+                x='Loading',
+                y='Feature',
+                orientation='h',
+                title='PC2 Feature Loadings'
+            )
+            fig_pc2.update_layout(height=max(400, len(feature_names) * 20))
+            st.plotly_chart(fig_pc2, use_container_width=True)
+        
+        # Voeg uitleg toe onder de loadings visualisaties
+        with st.expander("ℹ️ Uitleg PCA Loadings", expanded=False):
+            st.write("""
+            ### Interpretatie van PCA Loadings
+            
+            - **Loadings** geven aan hoe sterk elke originele variabele bijdraagt aan de principal components (PC's)
+            - Waarden liggen tussen -1 en 1:
+                - Een loading dicht bij 1 betekent een sterke positieve correlatie met de PC
+                - Een loading dicht bij -1 betekent een sterke negatieve correlatie met de PC
+                - Een loading dicht bij 0 betekent weinig tot geen correlatie met de PC
+            - Hoe groter de absolute waarde van de loading, hoe belangrijker die variabele is voor die PC
+            
+            De loadings helpen bij het interpreteren wat elke PC eigenlijk meet of representeert in termen van de originele variabelen.
+            """)
 
 def main():
     st.set_page_config(page_title="K-means Clustering Tool", layout="wide")
