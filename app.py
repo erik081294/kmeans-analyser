@@ -981,7 +981,7 @@ def plot_pca_clusters(X: np.ndarray, results: dict, k: int):
         - De percentages tussen haakjes geven aan hoeveel van de totale variatie elke component verklaart
         - Zwarte X-markers tonen de cluster centroids
         - Dicht bij elkaar liggende punten zijn vergelijkbaar in de originele data
-        - Goed gescheiden clusters suggereren een effectieve clustering
+        - Goed gescheiden clusters suggereren een effectieve clustering.
         """)
     
     # Toon feature loadings onder de PCA uitleg
